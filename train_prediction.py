@@ -35,6 +35,7 @@ mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
 device = "cuda" if cuda \
     else "mps" if mps \
     else "cpu"
+print(f'Using {device}')
 
 tokenizer = AutoTokenizer.from_pretrained("microsoft/CodeGPT-small-py")
 model = AutoModelForCausalLM.from_pretrained("microsoft/CodeGPT-small-py")
@@ -92,7 +93,7 @@ training_args = TrainingArguments(
     fp16=cuda,
     gradient_accumulation_steps=2,
     load_best_model_at_end=True,
-    metric_for_best_model="bleu",
+    metric_for_best_model="eval_loss",
     greater_is_better=True,
 )
 
