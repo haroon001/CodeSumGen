@@ -13,7 +13,7 @@ from huggingface_hub import login
 # from train_sum_mps_and_cpu import compute_metrics
 
 
-def prepare_data(examples, tkzr, max_length=512):
+def prepare_data(examples, tkzr, max_length=1024):
     texts = [" ".join(example) for example in examples["code"]]
 
     encodings = tkzr(
@@ -38,15 +38,19 @@ device = "cuda" if cuda \
 print(f'Using {device}')
 
 tokenizer = AutoTokenizer.from_pretrained("microsoft/CodeGPT-small-py")
-model = AutoModelForCausalLM.from_pretrained("microsoft/CodeGPT-small-py")
+model = AutoModelForCausalLM.from_pretrained("microsoft/CodeGPT-small-py").to(device)
 
-ds = load_dataset("google/code_x_glue_cc_code_completion_token", "python")
-
-temp = ds["train"].train_test_split(test_size=0.1, seed=42)
-train_ds, val_ds = temp["train"], temp["test"]
-del temp
-
+# ds = load_dataset("google/code_x_glue_cc_code_completion_token", "python")
+# temp = ds["train"].train_test_split(test_size=0.1, seed=42)
+# train_ds, val_ds = temp["train"], temp["test"]
+# del temp
+ds = load_dataset("Fraol/Py150-processed")
+train_ds = ds["train"]
+val_ds = ds["val"]
 test_ds = ds["test"]
+# train_ds = ds["train"].select(range(30000))
+# val_ds = ds["val"].select(range(2000))
+# test_ds = ds["test"].select(range(2000))
 
 print("mapping train")
 train_ds = train_ds.map(
@@ -82,19 +86,17 @@ training_args = TrainingArguments(
     eval_strategy="steps",
     eval_steps=500,
     num_train_epochs=3,
-    learning_rate=2e-5,
-    per_device_train_batch_size=8 if not cuda else 16,
-    per_device_eval_batch_size=8 if not cuda else 16,
-    logging_dir="./gen-logs",
+    learning_rate=1e-5,
+    per_device_train_batch_size=4 if not cuda else 16,
+    per_device_eval_batch_size=4 if not cuda else 16,
     save_total_limit=3,
     warmup_steps=500,
-    logging_steps=100,
     save_steps=500,
     fp16=cuda,
-    gradient_accumulation_steps=2,
+    bf16=mps,
+    gradient_accumulation_steps=8,
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
-    greater_is_better=True,
 )
 
 trainer = Trainer(
