@@ -29,7 +29,7 @@ def prepare_data(examples, tkzr, max_length=512):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f'Using device: {device}')
 
-tokenizer = AutoTokenizer.from_pretrained("distilgpt2_local")
+tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
 tokenizer.pad_token = tokenizer.eos_token  # Use EOS as padding token
 model = AutoModelForCausalLM.from_pretrained("distilgpt2_local")
 model.resize_token_embeddings(len(tokenizer))  # Resize for padding token
