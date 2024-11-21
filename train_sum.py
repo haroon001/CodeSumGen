@@ -12,7 +12,7 @@ import evaluate
 from sklearn.model_selection import train_test_split
 from huggingface_hub import login
 
-login('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')
+login('')
 
 
 model_name = "Salesforce/codet5-base-multi-sum"
