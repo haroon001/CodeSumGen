@@ -6,16 +6,16 @@ from transformers import (
     Seq2SeqTrainer,
     DataCollatorForSeq2Seq
 )
-import numpy as np
-from evaluate import load
 import torch
+import numpy as np
+import evaluate
 from sklearn.model_selection import train_test_split
 from huggingface_hub import login
 
-login('')
+login('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')
 
 
-model_name = "Salesforce/codet5-small"
+model_name = "Salesforce/codet5-base-multi-sum"
 model = T5ForConditionalGeneration.from_pretrained(model_name)
 tokenizer = RobertaTokenizer.from_pretrained(model_name)
 
@@ -86,8 +86,8 @@ validation_tokenized = validation_dataset.map(
 )
 
 
-rouge = load("rouge")
-bleu = load("bleu")
+rouge = evaluate.load("rouge")
+bleu = evaluate.load("bleu")
 
 def compute_metrics(eval_preds):
     predictions, labels = eval_preds
@@ -116,7 +116,7 @@ training_args = Seq2SeqTrainingArguments(
     learning_rate=2e-5,
     per_device_train_batch_size=8,
     per_device_eval_batch_size=8,
-    num_train_epochs=5,
+    num_train_epochs=100,
     weight_decay=0.01,
     save_total_limit=3,
     predict_with_generate=True,
@@ -144,8 +144,8 @@ trainer = Seq2SeqTrainer(
 trainer.train()
 
 
-model.save_pretrained("./codet5-finetuned-mbpp-final")
-tokenizer.save_pretrained("./codet5-finetuned-mbpp-final")
+model.save_pretrained("./codet5-basems-finetuned-mbpp-final")
+tokenizer.save_pretrained("./codet5-basems-finetuned-mbpp-final")
 
 
 test_results = trainer.evaluate(test_tokenized)
