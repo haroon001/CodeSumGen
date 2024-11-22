@@ -36,14 +36,14 @@ model.resize_token_embeddings(len(tokenizer))  # Resize for padding token
 model = model.to(device)
 
 ds = load_dataset("Fraol/Py150-processed")
-train_ds = ds["train"].select(range(60000))
+# train_ds = ds["train"].select(range(60000))
 val_ds = ds["val"].select(range(7500))
 test_ds = ds["test"].select(range(7500))
 
 # for testing
-train_ds = train_ds.select(range(50))
-val_ds = val_ds.select(range(50))
-test_ds = test_ds.select(range(50))
+
+val_ds = val_ds.select(range(15))
+test_ds = test_ds.select(range(15))
 
 data_collator = DataCollatorForLanguageModeling(
     tokenizer=tokenizer,
@@ -51,12 +51,6 @@ data_collator = DataCollatorForLanguageModeling(
 )
 
 print("Preparing datasets...")
-train_ds = train_ds.map(
-    lambda x: prepare_data(x, tokenizer),
-    batched=True,
-    remove_columns=train_ds.column_names,
-    num_proc=4
-)
 val_ds = val_ds.map(
     lambda x: prepare_data(x, tokenizer),
     batched=True,
@@ -90,12 +84,9 @@ def compute_metrics(eval_pred):
     decoded_preds = [pred.strip() for pred in decoded_preds]
     decoded_labels = [label.strip() for label in decoded_labels]
 
-    tokenized_preds = [pred.split() for pred in decoded_preds]
-    tokenized_labels = [label.split() for label in decoded_labels]
-
     # BLEU score
-    bleu_score = bleu.compute(predictions=tokenized_preds,
-                              references=tokenized_labels)
+    bleu_score = bleu.compute(predictions=decoded_preds,
+                              references=decoded_labels)
 
     # ROUGE score
     rouge_score = rouge.compute(predictions=decoded_preds,
@@ -107,9 +98,9 @@ def compute_metrics(eval_pred):
 
     return {
         "bleu": bleu_score["bleu"],
-        "rouge1": rouge_score["rouge1"].mid.fmeasure,
-        "rouge2": rouge_score["rouge2"].mid.fmeasure,
-        "rougeL": rouge_score["rougeL"].mid.fmeasure
+        "rouge1": rouge_score["rouge1"],
+        "rouge2": rouge_score["rouge2"],
+        "rougeL": rouge_score["rougeL"],
     }
 
 
@@ -133,12 +124,14 @@ training_args = TrainingArguments(
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=train_ds,
+    # train_dataset=train_ds,
     eval_dataset=val_ds,
     compute_metrics=compute_metrics
 )
 
+model.eval()
+
 print('Evaluation on validation dataset')
-trainer.evaluate()
+print(trainer.evaluate())
 print('Evaluation on test dataset')
-trainer.evaluate(test_ds)
+print(trainer.evaluate(test_ds))
