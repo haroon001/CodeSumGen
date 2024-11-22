@@ -6,12 +6,21 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling
 )
+import os
+
+#os.environ['CUDA_VISIBLE_DEVICES'] = '4,5,6,7'
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 import torch
+from torch.utils.data import DataLoader
 from evaluate import load
 import numpy as np
+from tqdm import tqdm
+from Levenshtein import distance as levenshtein_distance
+from codebleu import calc_codebleu
 
 
-def prepare_data(examples, tkzr, max_length=512):
+def prepare_data(examples, tkzr, max_length=256):
     texts = ["".join(example) for example in examples["code"]]
 
     encodings = tkzr(
@@ -37,13 +46,12 @@ model = model.to(device)
 
 ds = load_dataset("Fraol/Py150-processed")
 # train_ds = ds["train"].select(range(60000))
-val_ds = ds["val"].select(range(7500))
-test_ds = ds["test"].select(range(7500))
+val_ds = ds["val"].select(range(7000))
+test_ds = ds["test"].select(range(7000))
 
 # for testing
-
-val_ds = val_ds.select(range(15))
-test_ds = test_ds.select(range(15))
+#val_ds = val_ds.select(range(50))
+#test_ds = test_ds.select(range(50))
 
 data_collator = DataCollatorForLanguageModeling(
     tokenizer=tokenizer,
@@ -55,54 +63,56 @@ val_ds = val_ds.map(
     lambda x: prepare_data(x, tokenizer),
     batched=True,
     remove_columns=val_ds.column_names,
-    num_proc=4
 )
 test_ds = test_ds.map(
     lambda x: prepare_data(x, tokenizer),
     batched=True,
     remove_columns=test_ds.column_names,
-    num_proc=4
 )
+val_ds.set_format(type='torch', columns=['input_ids', 'attention_mask', 'labels'])
+test_ds.set_format(type='torch', columns=['input_ids', 'attention_mask', 'labels'])
 
 #Load metrics
 rouge = load("rouge")
 bleu = load("bleu")
 
 
-def compute_metrics(eval_pred):
-    # Unpack predictions and labels
-    logits, labels = eval_pred
+def compute_metrics(preds, labels):
 
-    # Get the predictions
-    predictions = np.argmax(logits, axis=-1)
+    total_dist, cut_dist, total_chars = 0, 0, 0
+    for pred, label in zip(preds, labels):
+        total_dist += levenshtein_distance(pred, label)
+        min_len = min(len(pred), len(label))
+        cut_dist += levenshtein_distance(pred[:min_len], label[:min_len])
+        total_chars += len(labels)
+    avg_lev = total_dist / len(preds)
+    avg_cut_lev = cut_dist / len(preds)
+    normed_lev = total_dist / total_chars if total_chars else 0
 
-    # Decode tokens to strings
-    decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
-    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-    # Postprocess to align text (strip extra spaces, etc.)
-    decoded_preds = [pred.strip() for pred in decoded_preds]
-    decoded_labels = [label.strip() for label in decoded_labels]
+    # codebleu
+    cb_res = calc_codebleu(labels, preds, lang="python")
 
     # BLEU score
-    bleu_score = bleu.compute(predictions=decoded_preds,
-                              references=decoded_labels)
+    bleu_score = bleu.compute(predictions=preds,
+                              references=labels)
 
     # ROUGE score
-    rouge_score = rouge.compute(predictions=decoded_preds,
-                                references=decoded_labels,
+    rouge_score = rouge.compute(predictions=preds,
+                                references=labels,
                                 use_stemmer=True)
-
-    # Optionally add custom metrics like perplexity
-    # For perplexity, use loss values from the Trainer logs
 
     return {
         "bleu": bleu_score["bleu"],
         "rouge1": rouge_score["rouge1"],
         "rouge2": rouge_score["rouge2"],
         "rougeL": rouge_score["rougeL"],
+        "avg_lev": avg_lev,
+        "normalized_lev": normed_lev,
+        "cut_lev": avg_cut_lev,
+        "codebleu": cb_res['codebleu'],
     }
 
+eval_batch_size = 8
 
 training_args = TrainingArguments(
     output_dir="./code-gen-results",
@@ -110,13 +120,12 @@ training_args = TrainingArguments(
     eval_steps=750,
     num_train_epochs=3,
     learning_rate=1e-5,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=eval_batch_size,
     save_total_limit=3,
     warmup_steps=500,
     save_steps=750,
     fp16=False,
-    gradient_accumulation_steps=4,
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
 )
@@ -124,14 +133,50 @@ training_args = TrainingArguments(
 trainer = Trainer(
     model=model,
     args=training_args,
-    # train_dataset=train_ds,
     eval_dataset=val_ds,
-    compute_metrics=compute_metrics
 )
 
 model.eval()
+val_loader = DataLoader(val_ds, batch_size=eval_batch_size)
+test_loader = DataLoader(test_ds, batch_size=eval_batch_size)
+all_val_preds, all_val_labels = [], []
+all_test_preds, all_test_labels = [], []
+with torch.no_grad():
+    torch.cuda.empty_cache()
+    for batch in tqdm(val_loader, desc="Generating predictions"):
+        input_ids = batch['input_ids'].to(device)
+        labels = batch['labels'].to(device)
 
-print('Evaluation on validation dataset')
-print(trainer.evaluate())
-print('Evaluation on test dataset')
-print(trainer.evaluate(test_ds))
+        out = model(input_ids)
+        preds = torch.argmax(out.logits, dim=-1)
+
+        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        all_val_preds.extend([pred.strip() for pred in decoded_preds])
+        all_val_labels.extend([label.strip() for label in decoded_labels])
+
+        # Clear memory
+        del out, preds
+        torch.cuda.empty_cache()
+
+    for batch in tqdm(test_loader, desc="Generating predictions"):
+        input_ids = batch['input_ids'].to(device)
+        labels = batch['labels'].to(device)
+
+        out = model(input_ids)
+        preds = torch.argmax(out.logits, dim=-1)
+
+        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        all_test_preds.extend([pred.strip() for pred in decoded_preds])
+        all_test_labels.extend([label.strip() for label in decoded_labels])
+
+        del out, preds
+        torch.cuda.empty_cache()
+
+    print('Validation metrics:')
+    print(compute_metrics(all_val_preds, all_val_labels))
+    print('Test metrics:')
+    print(compute_metrics(all_test_preds, all_test_labels))
