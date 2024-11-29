@@ -159,13 +159,15 @@ def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=5):
             cut_point = random.randint(1,
                                        seq_len - num_tokens_to_predict - 1)  # Start from 1 to ensure non-empty prefix
 
-            # Get the input prefix
+            # Get the input prefix and its attention mask
             prefix = input_ids[i, :cut_point].unsqueeze(0)
+            prefix_attention_mask = attention_mask[i, :cut_point].unsqueeze(0)
 
             # Debug prints
-            print(f"Sequence length: {seq_len}")
-            print(f"Cut point: {cut_point}")
-            print(f"Prefix shape: {prefix.shape}")
+            # print(f"Sequence length: {seq_len}")
+            # print(f"Cut point: {cut_point}")
+            # print(f"Prefix shape: {prefix.shape}")
+            # print(f"Prefix attention mask shape: {prefix_attention_mask.shape}")
 
             # Additional check for empty prefix
             if prefix.shape[1] == 0:
@@ -179,6 +181,7 @@ def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=5):
             with torch.no_grad():
                 outputs = model.generate(
                     prefix,
+                    attention_mask=prefix_attention_mask,
                     max_new_tokens=num_tokens_to_predict,
                     num_return_sequences=1,
                     pad_token_id=tokenizer.pad_token_id,
