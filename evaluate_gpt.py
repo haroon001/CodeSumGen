@@ -81,8 +81,11 @@ rouge = load("rouge")
 
 def compute_metrics(preds, labels):
     total_dist, cut_dist, total_chars = 0, 0, 0
+    exact_matches = 0
 
     for pred, label in zip(preds, labels):
+        if pred.strip() == label.strip():
+            exact_matches += 1
         total_dist += levenshtein_distance(pred, label)
         min_len = min(len(pred), len(label))
         cut_dist += levenshtein_distance(pred[:min_len], label[:min_len])
@@ -102,6 +105,7 @@ def compute_metrics(preds, labels):
                                 use_stemmer=True)
 
     return {
+        "accuracy": exact_matches / len(preds),
         "bleu": bleu_score['bleu'],
         "rouge1": rouge_score["rouge1"],
         "rouge2": rouge_score["rouge2"],
@@ -142,7 +146,7 @@ val_loader = DataLoader(val_ds, batch_size=eval_batch_size)
 test_loader = DataLoader(test_ds, batch_size=eval_batch_size)
 
 
-def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=5):
+def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=1):
     all_preds = []
     all_targets = []
 
