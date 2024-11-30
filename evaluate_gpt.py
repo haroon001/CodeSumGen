@@ -75,11 +75,13 @@ val_ds.set_format(type='torch', columns=['input_ids', 'attention_mask', 'labels'
 test_ds.set_format(type='torch', columns=['input_ids', 'attention_mask', 'labels'])
 
 #Load metrics
+bleu = load("bleu")
 rouge = load("rouge")
 
 
 def compute_metrics(preds, labels):
     total_dist, cut_dist, total_chars = 0, 0, 0
+
     for pred, label in zip(preds, labels):
         total_dist += levenshtein_distance(pred, label)
         min_len = min(len(pred), len(label))
@@ -88,6 +90,8 @@ def compute_metrics(preds, labels):
     avg_lev = total_dist / len(preds)
     avg_cut_lev = cut_dist / len(preds)
     normed_lev = total_dist / total_chars if total_chars else 0
+
+    bleu_score = bleu.compute(predictions=preds, references=labels)
 
     # codebleu
     cb_res = calc_codebleu(labels, preds, lang="python")
@@ -98,7 +102,9 @@ def compute_metrics(preds, labels):
                                 use_stemmer=True)
 
     return {
+        "bleu": bleu_score['bleu'],
         "rouge1": rouge_score["rouge1"],
+        "rouge2": rouge_score["rouge2"],
         "rougeL": rouge_score["rougeL"],
         "avg_lev": avg_lev,
         "normalized_lev": normed_lev,
@@ -195,8 +201,8 @@ def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=5):
             pred_text = tokenizer.decode(pred)
             target_text = tokenizer.decode(target)
 
-            print(f"Target: {target_text}")
-            print(f"Pred: {pred_text}")
+            #print(f"Target: {target_text}")
+            #print(f"Pred: {pred_text}")
 
             all_preds.append(pred_text)
             all_targets.append(target_text)
