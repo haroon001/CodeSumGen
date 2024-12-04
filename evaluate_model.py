@@ -8,11 +8,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling
 )
-import os
-
-#os.environ['CUDA_VISIBLE_DEVICES'] = '4,5,6,7'
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-
+from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 from evaluate import load
@@ -41,10 +37,14 @@ def prepare_data(examples, tkzr, max_length=256):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f'Using device: {device}')
 
-tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
+# Load model directly
+
+tokenizer = AutoTokenizer.from_pretrained("distilbert/distilgpt2")
+model = AutoModelForCausalLM.from_pretrained("distilbert/distilgpt2")
+# tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
 tokenizer.pad_token = tokenizer.eos_token  # Use EOS as padding token
 # tokenizer.add_special_tokens({'pad_token': '[PAD]'})  # Add padding token
-model = AutoModelForCausalLM.from_pretrained("distilgpt2_local")
+# model = AutoModelForCausalLM.from_pretrained("distilgpt2_local")
 model.resize_token_embeddings(len(tokenizer))  # Resize for padding token
 model = model.to(device)
 
@@ -54,8 +54,8 @@ val_ds = ds["val"].select(range(7000))
 test_ds = ds["test"].select(range(7000))
 
 # for testing
-#val_ds = val_ds.select(range(5))
-#test_ds = test_ds.select(range(5))
+# val_ds = val_ds.select(range(5))
+# test_ds = test_ds.select(range(5))
 
 data_collator = DataCollatorForLanguageModeling(
     tokenizer=tokenizer,
@@ -86,7 +86,7 @@ def compute_metrics(preds, labels):
     exact_matches = 0
     total_length = 0
 
-    for pred, label in zip(preds, labels):
+    for pred, label in tqdm(zip(preds, labels)):
         if pred.strip() == label.strip():
             exact_matches += 1
         total_length += len(label)
@@ -151,11 +151,11 @@ val_loader = DataLoader(val_ds, batch_size=eval_batch_size)
 test_loader = DataLoader(test_ds, batch_size=eval_batch_size)
 
 
-def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=1):
+def evaluate_completion(model, tokenizer, eval_loader, num_tokens_to_predict=5):
     all_preds = []
     all_targets = []
 
-    for batch in eval_loader:
+    for batch in tqdm(eval_loader):
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         labels = batch['labels'].to(device)
